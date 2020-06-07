@@ -27,6 +27,7 @@ import org.jetlinks.community.elastic.search.index.ElasticSearchIndexManager;
 import org.jetlinks.community.elastic.search.utils.ElasticSearchConverter;
 import org.jetlinks.community.elastic.search.utils.ReactorActionListener;
 import org.reactivestreams.Publisher;
+import org.springframework.context.annotation.DependsOn;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.BufferOverflowStrategy;
 import reactor.core.publisher.Flux;
@@ -47,6 +48,7 @@ import java.util.stream.Collectors;
  **/
 @Service
 @Slf4j
+@DependsOn("restHighLevelClient")
 public class DefaultElasticSearchService implements ElasticSearchService {
 
     private final ElasticRestClient restClient;
@@ -150,13 +152,22 @@ public class DefaultElasticSearchService implements ElasticSearchService {
 
     //@PostConstruct
     public void init() {
+        //最小间隔
+        int flushRate = Integer.getInteger("elasticsearch.buffer.rate", 1000);
+        //缓冲最大数量
+        int bufferSize = Integer.getInteger("elasticsearch.buffer.size", 3000);
+        //缓冲超时时间
+        Duration bufferTimeout = Duration.ofSeconds(Integer.getInteger("elasticsearch.buffer.timeout", 3));
+        //缓冲背压
+        int bufferBackpressure = Integer.getInteger("elasticsearch.buffer.backpressure", 64);
+
         //这里的警告都输出到控制台,输入到slf4j可能会造成日志递归.
         FluxUtils.bufferRate(
             Flux.<Buffer>create(sink -> this.sink = sink),
-            1000,
-            2000,
-            Duration.ofSeconds(3))
-            .onBackpressureBuffer(512,
+            flushRate,
+            bufferSize,
+            bufferTimeout)
+            .onBackpressureBuffer(bufferBackpressure,
                 drop -> System.err.println("无法处理更多索引请求!"),
                 BufferOverflowStrategy.DROP_OLDEST)
             .flatMap(this::doSave)
